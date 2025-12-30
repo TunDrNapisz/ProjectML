@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>🍌 Banana Quality Detection</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-slate-100 text-gray-800">
+
+<div class="max-w-7xl mx-auto p-6">
+
+  <!-- HEADER -->
+  <header class="text-center mb-10">
+    <h1 class="text-4xl font-extrabold text-lime-600">🍌 Banana Quality Detection</h1>
+    <p class="text-gray-500 mt-2">
+      YOLOv8 Segmentation + EfficientNet / MobileNet Classification
+    </p>
+  </header>
+
+  <!-- UPLOAD FORM -->
+  <form id="uploadForm"
+        class="bg-white p-6 rounded-2xl shadow-lg flex flex-col items-center mb-10">
+
+    <label class="w-full max-w-md cursor-pointer">
+      <div id="fileName"
+           class="border-2 border-dashed border-lime-400 rounded-lg p-4 text-center text-gray-600">
+        Select banana image (JPG / PNG)
+      </div>
+      <input type="file" name="image" accept="image/*" required hidden
+             onchange="document.getElementById('fileName').innerText = this.files[0].name">
+    </label>
+
+    <button type="submit"
+            class="mt-6 bg-lime-600 hover:bg-lime-700 text-white px-8 py-3 rounded-full font-semibold shadow">
+      🚀 Upload & Detect
+    </button>
+  </form>
+
+  <!-- RESULT SECTION -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+    <!-- PROCESSED IMAGE -->
+    <div class="lg:col-span-2">
+      <h2 class="text-xl font-semibold mb-3">Processed Image</h2>
+      <div class="bg-white rounded-xl shadow p-4 flex justify-center min-h-[300px]">
+        <img id="processedImg" class="max-h-[500px] object-contain rounded">
+      </div>
+    </div>
+
+    <!-- CLASSIFICATION RESULTS -->
+    <div>
+      <h2 class="text-xl font-semibold mb-3">Classification Results</h2>
+      <div id="results" class="space-y-4">
+        <p id="placeholder" class="text-gray-400 text-center py-10">
+          Upload image to start detection
+        </p>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+const form = document.getElementById("uploadForm");
+const processedImg = document.getElementById("processedImg");
+const resultsDiv = document.getElementById("results");
+const placeholder = document.getElementById("placeholder");
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const formData = new FormData(form);
+
+  processedImg.src = "";
+  resultsDiv.innerHTML = "";
+  placeholder.style.display = "none";
+
+  try {
+    const response = await fetch("/detect", {
+      method: "POST",
+      body: formData
+    });
+
+    if (!response.ok) {
+      alert("Server error!");
+      return;
+    }
+
+    const data = await response.json();
+
+    /* Show processed image */
+    processedImg.src = data.processed_image;
+
+    /* Show banana results */
+    if (data.detections.length === 0) {
+      resultsDiv.innerHTML =
+        "<p class='text-red-500 text-center'>No banana detected</p>";
+      return;
+    }
+
+    data.detections.forEach(item => {
+
+      let color = "border-gray-400";
+      if (item.type.includes("Healthy")) color = "border-green-500";
+      if (item.type.includes("Rotten")) color = "border-red-500";
+      if (item.type.includes("Disease")) color = "border-yellow-500";
+
+      const card = document.createElement("div");
+      card.className =
+        `flex items-center bg-white p-3 rounded-xl shadow border-l-4 ${color}`;
+
+      card.innerHTML = `
+        <img src="${item.crop_url}" class="w-20 h-20 rounded object-cover mr-4">
+        <div>
+          <p class="font-bold">${item.type}</p>
+          <p class="text-sm text-gray-500">
+            Confidence: ${(item.confidence * 100).toFixed(2)}%
+          </p>
+        </div>
+      `;
+
+      resultsDiv.appendChild(card);
+    });
+
+  } catch (err) {
+    console.error(err);
+    alert("Cannot connect to backend. Make sure Flask is running.");
+  }
+});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environment
+.venv/
+.venv_yolo/
+
+# PyCharm
+.idea/
+*.iml
+
+# ML models & weights
+*.pt
+*.h5
+*.onnx
+
+# Dataset / outputs
+uploads/
+outputs/
+crops/
+
+# OS
+.DS_Store
+Thumbs.db

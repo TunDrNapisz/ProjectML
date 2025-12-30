@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>🍌 Banana Quality Detection AI</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 10px; }
+    #videoFeed { transform: scaleX(-1); } /* Mirror view untuk kamera depan */
+  </style>
+</head>
+
+<body class="bg-slate-50 text-gray-900 min-h-screen">
+
+<div class="max-w-6xl mx-auto p-4 md:p-10">
+  <header class="text-center mb-12">
+    <div class="inline-block bg-lime-100 text-lime-700 px-4 py-1 rounded-full text-sm font-bold mb-4 uppercase tracking-widest">Live AI Analysis</div>
+    <h1 class="text-5xl font-extrabold text-gray-900 tracking-tight">Banana <span class="text-lime-600">Quality</span> Detection</h1>
+  </header>
+
+  <section class="max-w-2xl mx-auto mb-16">
+    <div class="bg-white p-6 rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
+      <div id="cameraContainer" class="relative rounded-2xl bg-black aspect-video overflow-hidden mb-6 hidden">
+        <video id="videoFeed" autoplay playsinline class="w-full h-full object-cover"></video>
+        <canvas id="captureCanvas" class="hidden"></canvas>
+      </div>
+
+      <div class="flex flex-col sm:flex-row gap-4 justify-center">
+        <button id="startCamBtn" onclick="initCamera()" class="bg-lime-600 hover:bg-lime-700 text-white px-8 py-4 rounded-2xl font-bold transition-all flex items-center justify-center gap-2">
+          📸 Open Camera
+        </button>
+        <button id="captureBtn" onclick="captureImage()" class="hidden bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-2xl font-bold transition-all flex items-center justify-center gap-2">
+          ⚡ Scan Banana
+        </button>
+        <label id="uploadLabel" class="bg-gray-100 hover:bg-gray-200 text-gray-600 px-8 py-4 rounded-2xl font-bold cursor-pointer transition-all flex items-center justify-center gap-2">
+          📁 Upload Image
+          <input type="file" id="fileInput" accept="image/*" hidden onchange="handleFileUpload(this)">
+        </label>
+      </div>
+    </div>
+  </section>
+
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
+    <div class="lg:col-span-7">
+      <h2 class="text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2">
+        <span class="p-2 bg-white rounded-lg shadow-sm">📸</span> Visual Analysis
+      </h2>
+      <div class="bg-white rounded-3xl shadow-lg p-2 min-h-[400px] flex items-center justify-center relative overflow-hidden border border-gray-100">
+        <img id="processedImg" class="max-w-full h-auto rounded-2xl opacity-0 transition-opacity duration-500">
+        <div id="imgPlaceholder" class="absolute flex flex-col items-center text-gray-300 italic text-center px-4">
+            Awaiting input...
+        </div>
+      </div>
+    </div>
+
+    <div class="lg:col-span-5">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+            <span class="p-2 bg-white rounded-lg shadow-sm">📊</span> Classification
+        </h2>
+        <span id="foundCount" class="bg-lime-600 text-white px-3 py-1 rounded-full text-xs font-bold shadow-md">0 Found</span>
+      </div>
+      <div id="results" class="space-y-6 overflow-y-auto max-h-[700px] pr-2 custom-scrollbar">
+          <div class="bg-white rounded-3xl p-10 text-center border-2 border-dashed border-gray-200 text-gray-400 italic">
+            Scan results will appear here...
+          </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let stream = null;
+const video = document.getElementById('videoFeed');
+const canvas = document.getElementById('captureCanvas');
+const resultsDiv = document.getElementById("results");
+
+async function initCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" },
+      audio: false
+    });
+    video.srcObject = stream;
+    document.getElementById('cameraContainer').classList.remove('hidden');
+    document.getElementById('startCamBtn').classList.add('hidden');
+    document.getElementById('captureBtn').classList.remove('hidden');
+  } catch (err) {
+    alert("Camera access denied.");
+  }
+}
+
+async function captureImage() {
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  canvas.toBlob(blob => {
+    const file = new File([blob], "capture.jpg", { type: "image/jpeg" });
+    sendToServer(file);
+  }, 'image/jpeg');
+}
+
+function handleFileUpload(input) {
+  if (input.files && input.files[0]) {
+    sendToServer(input.files[0]);
+  }
+}
+
+async function sendToServer(file) {
+  const formData = new FormData();
+  formData.append("image", file);
+
+  resultsDiv.innerHTML = `<div class="bg-white rounded-3xl p-10 flex flex-col items-center shadow-sm">
+      <div class="w-10 h-10 border-4 border-lime-500 border-t-transparent rounded-full animate-spin"></div>
+      <p class="mt-4 text-lime-600 font-bold">Analyzing...</p>
+  </div>`;
+
+  try {
+    const response = await fetch("/detect", { method: "POST", body: formData });
+    const data = await response.json();
+
+    document.getElementById("imgPlaceholder").style.display = "none";
+    const processedImg = document.getElementById("processedImg");
+    processedImg.src = data.processed_image;
+    processedImg.classList.remove('opacity-0');
+    processedImg.classList.add('opacity-100');
+
+    resultsDiv.innerHTML = "";
+    document.getElementById("foundCount").innerText = `${data.detections.length} Found`;
+
+    data.detections.forEach(item => {
+      let badgeStyle = "bg-green-100 text-green-700 border-green-200";
+      const eatLower = item.eatability.toLowerCase();
+      if (eatLower.includes('not safe')) badgeStyle = "bg-red-100 text-red-700 border-red-200";
+      else if (eatLower.includes('cut off') || eatLower.includes('peel')) badgeStyle = "bg-amber-100 text-amber-700 border-amber-200";
+
+      // --- LOGIK FRESHNESS BAR (Point 3) ---
+      const freshness = item.freshness || 0;
+      let freshColor = "bg-green-500";
+      if (freshness < 30) freshColor = "bg-red-500";
+      else if (freshness < 70) freshColor = "bg-yellow-400";
+
+      const card = document.createElement("div");
+      card.className = "bg-white rounded-3xl p-6 shadow-md border border-gray-100 transition-all hover:shadow-xl";
+      card.innerHTML = `
+        <div class="flex items-start gap-5">
+          <img src="${item.crop_url}" class="w-24 h-24 rounded-2xl object-cover ring-4 ring-gray-50">
+          <div class="flex-1">
+            <h3 class="text-xl font-extrabold text-gray-800 leading-tight">${item.type}</h3>
+            <div class="mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wide ${badgeStyle}">
+                ${item.eatability.split(' ')[0]} STATUS
+            </div>
+            <p class="text-sm font-bold text-gray-600 mt-2">${item.eatability}</p>
+
+            <div class="mt-3">
+              <div class="flex justify-between items-center mb-1">
+                <span class="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest">Freshness Index</span>
+                <span class="text-[10px] font-bold text-gray-700">${freshness}%</span>
+              </div>
+              <div class="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
+                <div class="${freshColor} h-full transition-all duration-1000" style="width: ${freshness}%"></div>
+              </div>
+            </div>
+
+            <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-2">Expiry: ${item.expiry}</p>
+          </div>
+        </div>
+        <div class="mt-4 pt-4 border-t border-gray-100">
+          <p class="text-gray-700 text-sm leading-relaxed italic text-center mb-4">"${item.description}"</p>
+          <button onclick="this.nextElementSibling.classList.toggle('hidden')" class="w-full py-2 bg-gray-50 text-gray-500 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-gray-100 transition-colors">
+            View Confidence Scores
+          </button>
+          <div class="hidden mt-4 space-y-3">
+            ${['Healthy', 'Disease', 'Rotten'].map(key => {
+              const val = item.all_scores[key] || 0;
+              const barColor = key === 'Healthy' ? 'bg-green-500' : key === 'Disease' ? 'bg-amber-400' : 'bg-red-500';
+              return `
+                <div>
+                  <div class="flex justify-between text-[10px] font-bold uppercase mb-1">
+                    <span>${key}</span> <span>${val.toFixed(1)}%</span>
+                  </div>
+                  <div class="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden">
+                    <div class="${barColor} h-full" style="width: ${val}%"></div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
+      resultsDiv.appendChild(card);
+    });
+  } catch (err) {
+    resultsDiv.innerHTML = `<div class="p-6 text-red-600 font-bold">Error analyzing image.</div>`;
+  }
+}
+</script>
+</body>
+</html>
