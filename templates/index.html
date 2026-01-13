@@ -132,12 +132,18 @@ async function sendToServer(file) {
     document.getElementById("foundCount").innerText = `${data.detections.length} Found`;
 
     data.detections.forEach(item => {
+      // --- PENETAPAN WARNA BADGE (DIKEMASKINI) ---
       let badgeStyle = "bg-green-100 text-green-700 border-green-200";
-      const eatLower = item.eatability.toLowerCase();
-      if (eatLower.includes('not safe')) badgeStyle = "bg-red-100 text-red-700 border-red-200";
-      else if (eatLower.includes('cut off') || eatLower.includes('peel')) badgeStyle = "bg-amber-100 text-amber-700 border-amber-200";
 
-      // --- LOGIK FRESHNESS BAR (Point 3) ---
+      // Jika Backend hantar "Uncertainty"
+      if (item.type === "Uncertainty") {
+          badgeStyle = "bg-amber-100 text-amber-700 border-amber-200";
+      }
+      // Jika Backend hantar "Disease Banana" atau "Rotten"
+      else if (item.type === "Disease Banana" || item.type.includes("Rotten")) {
+          badgeStyle = "bg-red-100 text-red-700 border-red-200";
+      }
+
       const freshness = item.freshness || 0;
       let freshColor = "bg-green-500";
       if (freshness < 30) freshColor = "bg-red-500";
@@ -145,13 +151,15 @@ async function sendToServer(file) {
 
       const card = document.createElement("div");
       card.className = "bg-white rounded-3xl p-6 shadow-md border border-gray-100 transition-all hover:shadow-xl";
+
+      // TAJUK UTAMA (h3) kini menggunakan item.type secara dinamik
       card.innerHTML = `
         <div class="flex items-start gap-5">
           <img src="${item.crop_url}" class="w-24 h-24 rounded-2xl object-cover ring-4 ring-gray-50">
           <div class="flex-1">
             <h3 class="text-xl font-extrabold text-gray-800 leading-tight">${item.type}</h3>
             <div class="mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wide ${badgeStyle}">
-                ${item.eatability.split(' ')[0]} STATUS
+                ${item.type === "Uncertainty" ? "UNCERTAINTY" : "DANGER"} STATUS
             </div>
             <p class="text-sm font-bold text-gray-600 mt-2">${item.eatability}</p>
 

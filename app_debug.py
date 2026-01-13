@@ -3,6 +3,8 @@ import cv2
 import numpy as np
 import os
 import uuid
+from groq import Groq
+import json  # Tambahan: Untuk format JSON di terminal
 
 from ultralytics import YOLO
 from tensorflow.keras.models import load_model
@@ -31,10 +33,10 @@ try:
     yolo_seg_model = YOLO("yolov8s-seg.pt")
     print("[INFO] YOLOv8s (Small) segmentation model loaded")
 except Exception as e:
-    print(f"[WARNING] Model failed: {e}")
+    print(f"[WARNING] YOLO Model failed: {e}")
 
 try:
-    banana_classifier = load_model("efficientnetB0_fruit_model.h5")
+    banana_classifier = load_model("efficientnetB0_fruit_model_lt.keras")
     print("[INFO] EfficientNetB0 classifier loaded")
 except Exception as e:
     print(f"[WARNING] EfficientNetB0 classifier failed: {e}")
@@ -62,119 +64,212 @@ def apply_preprocessing(img_bgr):
 
 
 # ===============================
-# PRECISE CROPPING LOGIC (Old - with Mask)
-# ===============================
-def get_precise_crop(image, results, box_index=0):
-    try:
-        if results[0].masks is not None:
-            mask = results[0].masks.data[box_index].cpu().numpy()
-            mask = cv2.resize(mask, (image.shape[1], image.shape[0]))
-            isolated_banana = image * (mask[:, :, None] > 0.5)
-            coords = results[0].boxes[box_index].xyxy.cpu().numpy()[0]
-            x1, y1, x2, y2 = map(int, coords)
-            x1, y1 = max(0, x1), max(0, y1)
-            x2, y2 = min(image.shape[1], x2), min(image.shape[0], y2)
-            crop = isolated_banana[y1:y2, x1:x2]
-            return crop
-    except Exception as e:
-        print(f"Precise crop error: {e}")
-    return None
-
-
-# ===============================
-# NATURAL CROPPING LOGIC (LATEST - Solve Rotten Error)
+# NATURAL CROPPING LOGIC
 # ===============================
 def get_natural_crop(image, results, box_index=0):
-    """
-    Memenuhi arahan Dr. Choo: 'Do not remove background'.
-    Mengekalkan tekstur asal tanpa mask hitam supaya EfficientNet tidak keliru.
-    """
     try:
+        # Ambil koordinat asal
         coords = results[0].boxes[box_index].xyxy.cpu().numpy()[0]
         x1, y1, x2, y2 = map(int, coords)
 
-        # Tambah margin 5% supaya imej tidak terlalu rapat (mengurangkan gangguan tepi)
-        h, w = image.shape[:2]
-        pad_w = int((x2 - x1) * 0.05)
-        pad_h = int((y2 - y1) * 0.05)
+        # 1. TAMBAH PADDING (Ruang ekstra 15% supaya pisang tak nampak terhimpit)
+        h, w, _ = image.shape
+        pad_w = int((x2 - x1) * 0.15)
+        pad_h = int((y2 - y1) * 0.15)
 
-        nx1, ny1 = max(0, x1 - pad_w), max(0, y1 - pad_h)
-        nx2, ny2 = min(w, x2 + pad_w), min(h, y2 + pad_h)
+        # Pastikan koordinat baru tidak terkeluar dari saiz imej asal
+        nx1 = max(0, x1 - pad_w)
+        ny1 = max(0, y1 - pad_h)
+        nx2 = min(w, x2 + pad_w)
+        ny2 = min(h, y2 + pad_h)
 
-        return image[ny1:ny2, nx1:nx2]
+        # 2. PILIHAN: Gunakan pemotongan asal tanpa Masking yang kasar
+        # Ini akan memaparkan pisang dengan lebih jelas beserta sedikit latar belakangnya
+        crop = image[ny1:ny2, nx1:nx2]
+
+        # Jika anda masih mahu latar belakang putih, gunakan final_img dari logik asal
+        # tetapi potong menggunakan koordinat 'n' (nx1, ny1, nx2, ny2)
+        if results[0].masks is not None:
+            mask = results[0].masks.data[box_index].cpu().numpy()
+            mask = cv2.resize(mask, (image.shape[1], image.shape[0]))
+            binary_mask = (mask > 0.5).astype(np.uint8) * 255
+            white_bg = np.ones_like(image) * 255
+            masked_image = cv2.bitwise_and(image, image, mask=binary_mask)
+            inv_mask = cv2.bitwise_not(binary_mask)
+            bg_part = cv2.bitwise_and(white_bg, white_bg, mask=inv_mask)
+            final_img = cv2.add(masked_image, bg_part)
+
+            # Potong imej yang sudah berlatar belakang putih dengan padding
+            crop = final_img[ny1:ny2, nx1:nx2]
+
+        return crop
     except Exception as e:
         print(f"Natural crop error: {e}")
         return None
 
 
+def generate_ai_description(label, scores, ripeness_status="Optimal"):
+
+
+    try:
+        prompt = (
+            f"Analyze this banana: {label}. "
+            f"Current Data Scores: Healthy {scores['Healthy']}%, Disease {scores['Disease']}%, Rotten {scores['Rotten']}%. "
+
+            "Expert Logic Table: "
+            # --- LOGIK HEALTHY ---
+            "- If Healthy is 90.0% OR HIGHER: Advice: 'Safe to eat, exceptionally fresh, and has a firm texture.' "
+            "- If Healthy is BETWEEN 70.0% AND 89.9%: 'Safe to eat, sweet, and ideal for immediate consumption.' "
+            "- If Healthy is BETWEEN 50.0% AND 69.9%: Advice: 'Safe to eat and highly recommended for making cakes or cekodok.' "
+            "- If Healthy is BETWEEN 0.0% AND 49.9%: Advice: 'Potentially safe but MUST be inspected manually for hidden decay before eating.' "
+
+            # --- LOGIK DISEASE (DIBETULKAN) ---
+            "- If Disease is BETWEEN 0.0% AND 49.9%: Advice: 'Risky but potentially usable for cooking (e.g., pisang goreng) ONLY after deep frying to kill pathogens, but proceed with caution.' "
+            "- If Disease is BETWEEN 50.0% AND 69.9%: Advice: 'Strictly unfit for consumption and should be discarded to avoid health risks.' "
+            "- If Disease is 70.0% OR HIGHER: Advice: 'DO NOT EAT and discard immediately due to severe contamination.' "
+
+            # --- LOGIK ROTTEN ---
+            "- If Rotten is BETWEEN 0.0% AND 49.9%: Advice: 'Unfit for consumption even at low scores, should be discarded to avoid ingestion of mold or toxins.' "
+            "- If Rotten is BETWEEN 50.0% AND 69.9%: Advice: 'Unfit for raw consumption and should be discarded due to early decay.' "
+            "- If Rotten is 70.0% OR HIGHER: Advice: 'DO NOT EAT and discard immediately due to total decay.' "
+
+            # --- TAMBAHAN UNTUK EXPIRY DATE DINAMIK ---
+            "CRITICAL INSTRUCTION FOR EXPIRY: Do not use a fixed value for expiry. "
+            "Based on the scores above, use your scientific knowledge to estimate a realistic expiry period. "
+            "For example, a 95% healthy banana might last 8 days, while 75% might last 4 days. "
+            "If Disease/Rotten is dominant, set expiry to 'Expired' or 'Cook Today'. "
+
+            "CRITICAL: Based on the scores provided, identify which SINGLE rule applies for the advice, "
+            "but generate the 'expiry' dynamically. Return ONLY a JSON object: "
+            "{'advice': '...', 'expiry': 'your dynamic estimation', 'freshness': 0-100}."
+        )
+
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            # Temperature 0.5 supaya AI boleh buat anggaran hari yang berbeza-beza (dinamik)
+            temperature=0.5,
+            timeout=5
+        )
+
+        return json.loads(completion.choices[0].message.content)
+    except Exception as e:
+        print(f"Groq Error: {e}")
+        return None
+
 # ===============================
-# SMART EATABILITY LOGIC (Reflect Reality)
+# STRICT EATABILITY LOGIC (UPDATED)
 # ===============================
 def get_banana_info(label, accuracy, all_scores, crop_img):
-    h_score = all_scores.get("Healthy", 0)
-    r_score = all_scores.get("Rotten", 0)
-    d_score = all_scores.get("Disease", 0)
+    h_score = round(float(all_scores.get("Healthy", 0.0)), 2)
+    d_score = round(float(all_scores.get("Disease", 0.0)), 2)
+    r_score = round(float(all_scores.get("Rotten", 0.0)), 2)
 
-    # Formula freshness realistik mengikut arahan Dr. Choo
-    raw_freshness = (h_score * 1.0 + d_score * 0.7 + r_score * 0.1)
-    freshness_val = min(max(raw_freshness, 0), 100)
+    max_score = max(h_score, d_score, r_score)
 
-    if label == "Rotten Banana":
-        if r_score > 95.0:
-            freshness_val = min(freshness_val, 15.0)
-        elif r_score > 80.0:
-            freshness_val = max(freshness_val, 60.0)
-        else:
-            freshness_val = max(freshness_val, 55.0)
+    # --- LANGKAH 1: TENTUKAN CATEGORY DULU DI PYTHON ---
+    category = "Healthy"
+    if r_score == max_score:
+        category = "Rotten"
+    elif d_score == max_score:
+        category = "Disease"
 
-    freshness_val = round(freshness_val, 2)
+    # Ambil data daripada Groq API
+    ai_data = generate_ai_description(label, all_scores, category)
 
-    # Logik PISANG HIJAU (Guna HSV untuk Skin Analysis)
-    if label == "Healthy Banana" and crop_img is not None:
-        hsv = cv2.cvtColor(crop_img, cv2.COLOR_BGR2HSV)
-        # Range warna hijau pisang
-        mask = cv2.inRange(hsv, np.array([25, 40, 40]), np.array([85, 255, 255]))
-        green_ratio = np.count_nonzero(mask) / (crop_img.size / 3)
+    if not ai_data:
+        ai_data = {"advice": "Manual inspection required.", "expiry": "N/A", "freshness": 0}
 
-        if green_ratio > 0.12:  # Threshold untuk pisang mentah
-            return {
-                "description": "Banana is still green. Perfect for cooking (pisang goreng) or wait to ripen.",
-                "eatability": "Wait 2-4 Days",
-                "expiry": "5 - 8 Days",
-                "freshness": freshness_val
-            }
+    display_desc = ai_data.get("advice")
+    display_expiry = ai_data.get("expiry")
+    display_freshness = round(float(ai_data.get("freshness", h_score)), 2)
 
-    # Logik PISANG MASAK RANUM (Mencerminkan Realiti - Marketable)
-    if label == "Rotten Banana" or r_score > 70.0:
-        if freshness_val >= 35.0:
-            return {
-                "description": "Banana is overripe (masak ranum). Very sweet! Excellent for smoothies or cakes.",
-                "eatability": "Safe (Overripe)",
-                "expiry": "1 Day",
-                "freshness": freshness_val
-            }
-        else:
-            return {
-                "description": "Decomposition or mold detected. Toxic risk, do not consume.",
-                "eatability": "Not Safe - Discard",
-                "expiry": "Expired",
-                "freshness": freshness_val
-            }
+    # ============================================================
+    # 1. LOGIK ROTTEN (Mesti Dominan)
+    # ============================================================
+    if r_score == max_score and r_score > 0:
+        if r_score >= 70.0:
+            eat = "NOT SAFE - Discard Immediately"
+        elif r_score >= 50.0:
+            eat = "Unsafe (Discard)"
+        else:  # Bawah 50%
+            eat = "Unsafe (Early Decay)"
 
-    if label == "Healthy Banana":
         return {
-            "description": "Standard ripe banana. Optimal texture and nutrition.",
-            "eatability": "Safe to Eat",
-            "expiry": "2 - 4 Days",
-            "freshness": freshness_val
+            "type": "Rotten Banana",
+            "description": display_desc,
+            "eatability": eat,
+            "expiry": "Expired",
+            "freshness": display_freshness,
+            "reason": [f"Rotten is dominant ({r_score}%)"]
         }
 
-    # Logik PISANG BERBINTIK (Disease/Spots)
+    # ============================================================
+    # 2. LOGIK DISEASE (Mesti Dominan)
+    # ============================================================
+    elif d_score == max_score and d_score > 0:
+        if d_score >= 70.0:
+            return {
+                "type": "Disease Banana",
+                "description": display_desc,
+                "eatability": "NOT SAFE - Discard Immediately",  # Ikut Prompt Logik 7
+                "expiry": "Expired",
+                "freshness": display_freshness,
+                "reason": [f"High Disease Score ({d_score}%)"]
+            }
+        elif d_score >= 50.0:
+            return {
+                "type": "Uncertain (Disease)",
+                "description": display_desc,
+                "eatability": "Strictly Unfit for Consumption",  # Ikut Prompt Logik 6
+                "expiry": display_expiry,
+                "freshness": display_freshness,
+                "reason": [f"Moderate Disease Score ({d_score}%)"]
+            }
+        else:  # Bawah 50%
+            return {
+                "type": "Uncertain (Potential Disease)",
+                "description": display_desc,
+                "eatability": "Risky (For Cooking Only)",  # Ikut Prompt Logik 5
+                "expiry": display_expiry,
+                "freshness": display_freshness,
+                "reason": [f"Low Disease Score ({d_score}%)"]
+            }
+
+    # ============================================================
+    # 3. LOGIK HEALTHY (Mesti Dominan)
+    # ============================================================
+    elif h_score == max_score and h_score > 0:
+        if h_score >= 70.0:
+            eat = "Safe to Eat"
+            typ = "Healthy Banana"
+        elif h_score >= 50.0:
+            eat = "Safe (Ideal for Cooking)"  # Ikut Prompt Logik 3
+            typ = "Safe"
+        else:  # Bawah 50%
+            eat = "Manual Inspection Required"  # Ikut Prompt Logik 4
+            typ = "Inconclusive (Healthy)"
+
+        return {
+            "type": typ,
+            "description": display_desc,
+            "eatability": eat,
+            "expiry": display_expiry,
+            "freshness": h_score,
+            "reason": [f"Healthy Score ({h_score}%)"]
+        }
+
+    # ============================================================
+    # 4. FALLBACK
+    # ============================================================
     return {
-        "description": "Surface spots detected. Internal fruit is usually safe and sweet.",
-        "eatability": "Safe (Peel thoroughly)",
-        "expiry": "1 - 2 Days",
-        "freshness": freshness_val
+        "type": "Inconclusive",
+        "description": "Inconclusive results. Please perform a manual visual inspection.",
+        "eatability": "Manual Inspection Required",
+        "expiry": display_expiry,
+        "freshness": 0,
+        "reason": ["Confidence below threshold"]
     }
 
 
@@ -221,31 +316,31 @@ def detect():
         return jsonify({"error": "Invalid image file"}), 400
 
     detections = []
-    # YOLOv8s pengesanan (Visual Analysis)
-    results = yolo_seg_model(img, conf=0.20, iou=0.45, classes=[46])
+    results = yolo_seg_model(img, conf=0.35, iou=0.45, classes=[46])
 
     if results and len(results[0].boxes) > 0:
-        for i, box in enumerate(results[0].boxes):
-            # 1. FOKUS: Gunakan Natural Crop untuk elak ralat warna busuk
+        def calc_area(box):
+            c = box.xyxy.cpu().numpy()[0]
+            return (c[2] - c[0]) * (c[3] - c[1])
+
+        sorted_indices = np.argsort([calc_area(box) for box in results[0].boxes])[::-1]
+
+        for i in sorted_indices[:4]:
             banana_crop = get_natural_crop(img, results, box_index=i)
-
             if banana_crop is not None and banana_crop.size > 0:
-                # 2. KLASIFIKASI: Analisis kulit pisang
                 class_id, confidence, all_scores = classify_banana(banana_crop)
-
-                # Filter gangguan (contoh: tangan/bayang) dengan threshold lebih tinggi
-                if confidence < 0.40: continue
+                if confidence < 0.30: continue
 
                 banana_type = label_map.get(class_id, "Unknown")
                 info = get_banana_info(banana_type, confidence, all_scores, banana_crop)
-
                 crop_name = f"crop_{uuid.uuid4()}.jpg"
                 cv2.imwrite(os.path.join(CROP_FOLDER, crop_name), banana_crop)
 
                 detections.append({
                     "id": str(uuid.uuid4())[:8],
-                    "type": banana_type,
-                    "accuracy_val": confidence,
+                    "type": info.get("type", banana_type),  # UBAH INI: Guna info["type"] jika ada
+                    "confidence": confidence,  # TAMBAH/KEKALKAN: Untuk index.html baca confidence
+                    "accuracy_val": round(confidence * 100, 2),
                     "all_scores": all_scores,
                     "description": info["description"],
                     "eatability": info["eatability"],
@@ -254,40 +349,43 @@ def detect():
                     "crop_url": f"{request.host_url}crop/{crop_name}"
                 })
 
-    # MODIFIKASI: Hanya klasifikasi imej penuh jika YOLO gagal dan imej sangat meyakinkan
     if not detections:
         class_id, confidence, all_scores = classify_banana(img)
+        if confidence >= 0.50:
+            banana_type = label_map.get(class_id, "Unknown")
+            info = get_banana_info(banana_type, confidence, all_scores, img)
+            crop_name = f"fallback_{uuid.uuid4()}.jpg"
+            cv2.imwrite(os.path.join(CROP_FOLDER, crop_name), img)
 
-        # Logik elak logo universiti/FAIX dikesan sebagai pisang
-        if confidence < 0.70:
-            return jsonify({
-                "processed_image": f"{request.host_url}output/{filename}",
-                "detections": [],
-                "message": "No banana detected in Visual Analysis. Object ignored to avoid false results."
+            detections.append({
+                "id": "full-scan",
+                "type": info.get("type", banana_type),  # UBAH INI JUGA
+                "accuracy_val": round(confidence * 100, 2),
+                "all_scores": all_scores,
+                "description": info["description"] + " (Full Scan)",
+                "eatability": info["eatability"],
+                "expiry": info["expiry"],
+                "freshness": info["freshness"],
+                "crop_url": f"{request.host_url}crop/{crop_name}"
             })
 
-        banana_type = label_map.get(class_id, "Unknown")
-        info = get_banana_info(banana_type, confidence, all_scores, img)
-        crop_name = f"fallback_{uuid.uuid4()}.jpg"
-        cv2.imwrite(os.path.join(CROP_FOLDER, crop_name), img)
+    res_plotted = results[0].plot()
+    cv2.imwrite(os.path.join(OUTPUT_FOLDER, filename), res_plotted)
 
-        detections.append({
-            "id": "forced",
-            "type": banana_type,
-            "accuracy_val": confidence,
-            "all_scores": all_scores,
-            "description": info["description"] + " (Full-scan detection)",
-            "eatability": info["eatability"],
-            "expiry": info["expiry"],
-            "freshness": info["freshness"],
-            "crop_url": f"{request.host_url}crop/{crop_name}"
-        })
-
-    cv2.imwrite(os.path.join(OUTPUT_FOLDER, filename), results[0].plot())
-    return jsonify({
+    # FINAL JSON RESPONSE (With Responsible AI Disclaimer)
+    final_response = {
         "processed_image": f"{request.host_url}output/{filename}",
-        "detections": detections
-    })
+        "detections": detections,
+        "disclaimer": "This result is AI-generated. Please verify with a food safety expert before consumption."
+    }
+
+    # Print ke terminal untuk bukti JSON
+    import json
+    print("\n" + "=" * 50)
+    print(json.dumps(final_response, indent=4))
+    print("=" * 50)
+
+    return jsonify(final_response)
 
 
 # ===============================
