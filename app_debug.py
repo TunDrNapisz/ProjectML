@@ -1,15 +1,21 @@
-from flask import Flask, request, jsonify, send_from_directory, render_template
+from flask import Flask, request, jsonify, send_from_directory, render_template, render_template, request
 import cv2
 import numpy as np
 import os
 import uuid
 from groq import Groq
 import json  # Tambahan: Untuk format JSON di terminal
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from ultralytics import YOLO
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing.image import img_to_array
 from tensorflow.keras.applications.efficientnet import preprocess_input
+
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 # ===============================
 # CONFIGURATION
@@ -37,7 +43,7 @@ except Exception as e:
 
 try:
     banana_classifier = load_model("efficientnetB0_fruit_model_lt.keras")
-    print("[INFO] EfficientNetB0 classifier loaded")
+    print("[INFO] EfficientNetB0 classifier loaded successfully")
 except Exception as e:
     print(f"[WARNING] EfficientNetB0 classifier failed: {e}")
 
@@ -109,9 +115,9 @@ def get_natural_crop(image, results, box_index=0):
 
 
 def generate_ai_description(label, scores, ripeness_status="Optimal"):
-
-
     try:
+        print(f"[DEBUG] Generating AI description for: {label}")
+        print(f"[DEBUG] Scores: {scores}")
         prompt = (
             f"Analyze this banana: {label}. "
             f"Current Data Scores: Healthy {scores['Healthy']}%, Disease {scores['Disease']}%, Rotten {scores['Rotten']}%. "
@@ -144,6 +150,7 @@ def generate_ai_description(label, scores, ripeness_status="Optimal"):
             "{'advice': '...', 'expiry': 'your dynamic estimation', 'freshness': 0-100}."
         )
 
+        print("[DEBUG] Calling Groq API...")
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
@@ -153,13 +160,17 @@ def generate_ai_description(label, scores, ripeness_status="Optimal"):
             timeout=5
         )
 
-        return json.loads(completion.choices[0].message.content)
+        response_json = json.loads(completion.choices[0].message.content)
+        print(f"[DEBUG] Groq response: {response_json}")
+        return response_json
     except Exception as e:
-        print(f"Groq Error: {e}")
+        print(f"[ERROR] Groq Error: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 # ===============================
-# STRICT EATABILITY LOGIC (UPDATED)
+# STRICT EDIBLE LOGIC FUNCTION
 # ===============================
 def get_banana_info(label, accuracy, all_scores, crop_img):
     h_score = round(float(all_scores.get("Healthy", 0.0)), 2)
@@ -278,6 +289,11 @@ def get_banana_info(label, accuracy, all_scores, crop_img):
 # ===============================
 def classify_banana(img_bgr):
     try:
+        if banana_classifier is None:
+            print("[ERROR] Banana classifier model is not loaded!")
+            return 1, 0.0, {"Disease": 0, "Healthy": 0, "Rotten": 0}
+        
+        print("[DEBUG] Starting banana classification...")
         processed_img = apply_preprocessing(img_bgr)
         img_rgb = cv2.cvtColor(processed_img, cv2.COLOR_BGR2RGB)
         img_resized = cv2.resize(img_rgb, (224, 224))
@@ -285,16 +301,25 @@ def classify_banana(img_bgr):
         img_array = preprocess_input(img_array)
         img_array = np.expand_dims(img_array, axis=0)
 
+        print("[DEBUG] Running model prediction...")
         preds = banana_classifier.predict(img_array, verbose=0)[0]
+        print(f"[DEBUG] Raw predictions: {preds}")
+        
         all_scores = {
             "Disease": float(preds[0]) * 100,
             "Healthy": float(preds[1]) * 100,
             "Rotten": float(preds[2]) * 100
         }
         class_id = int(np.argmax(preds))
-        return class_id, float(np.max(preds)), all_scores
+        confidence = float(np.max(preds))
+        
+        print(f"[DEBUG] Class ID: {class_id}, Confidence: {confidence}")
+        print(f"[DEBUG] All scores: {all_scores}")
+        return class_id, confidence, all_scores
     except Exception as e:
-        print(f"Classification error: {e}")
+        print(f"[ERROR] Classification error: {e}")
+        import traceback
+        traceback.print_exc()
         return 1, 0.0, {"Disease": 0, "Healthy": 0, "Rotten": 0}
 
 
@@ -336,17 +361,29 @@ def detect():
                 crop_name = f"crop_{uuid.uuid4()}.jpg"
                 cv2.imwrite(os.path.join(CROP_FOLDER, crop_name), banana_crop)
 
+                # Create annotated image with confidence display
+                annotated_crop = banana_crop.copy()
+                cv2.putText(annotated_crop, f"Confidence: {confidence*100:.1f}%", (10, 40),
+                           cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 2)
+                cv2.putText(annotated_crop, f"Type: {banana_type}", (10, 90),
+                           cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
+                annotated_crop_name = f"annotated_{uuid.uuid4()}.jpg"
+                cv2.imwrite(os.path.join(CROP_FOLDER, annotated_crop_name), annotated_crop)
+
                 detections.append({
                     "id": str(uuid.uuid4())[:8],
                     "type": info.get("type", banana_type),  # UBAH INI: Guna info["type"] jika ada
                     "confidence": confidence,  # TAMBAH/KEKALKAN: Untuk index.html baca confidence
+                    "confidence_percentage": round(confidence * 100, 2),
+                    "confidence_level": "High" if confidence >= 0.8 else "Medium" if confidence >= 0.6 else "Low",
                     "accuracy_val": round(confidence * 100, 2),
                     "all_scores": all_scores,
                     "description": info["description"],
                     "eatability": info["eatability"],
                     "expiry": info["expiry"],
                     "freshness": info["freshness"],
-                    "crop_url": f"{request.host_url}crop/{crop_name}"
+                    "crop_url": f"{request.host_url}crop/{crop_name}",
+                    "annotated_crop_url": f"{request.host_url}crop/{annotated_crop_name}"
                 })
 
     if not detections:
@@ -357,26 +394,49 @@ def detect():
             crop_name = f"fallback_{uuid.uuid4()}.jpg"
             cv2.imwrite(os.path.join(CROP_FOLDER, crop_name), img)
 
+            # Create annotated image with confidence display
+            annotated_img = img.copy()
+            cv2.putText(annotated_img, f"Confidence: {confidence*100:.1f}%", (10, 40),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 2)
+            cv2.putText(annotated_img, f"Type: {banana_type}", (10, 90),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
+            annotated_crop_name = f"annotated_{uuid.uuid4()}.jpg"
+            cv2.imwrite(os.path.join(CROP_FOLDER, annotated_crop_name), annotated_img)
+
             detections.append({
                 "id": "full-scan",
                 "type": info.get("type", banana_type),  # UBAH INI JUGA
+                "confidence": confidence,
+                "confidence_percentage": round(confidence * 100, 2),
+                "confidence_level": "High" if confidence >= 0.8 else "Medium" if confidence >= 0.6 else "Low",
                 "accuracy_val": round(confidence * 100, 2),
                 "all_scores": all_scores,
                 "description": info["description"] + " (Full Scan)",
                 "eatability": info["eatability"],
                 "expiry": info["expiry"],
                 "freshness": info["freshness"],
-                "crop_url": f"{request.host_url}crop/{crop_name}"
+                "crop_url": f"{request.host_url}crop/{crop_name}",
+                "annotated_crop_url": f"{request.host_url}crop/{annotated_crop_name}"
             })
 
     res_plotted = results[0].plot()
     cv2.imwrite(os.path.join(OUTPUT_FOLDER, filename), res_plotted)
 
-    # FINAL JSON RESPONSE (With Responsible AI Disclaimer)
+    # FINAL JSON RESPONSE (With Enhanced Responsible AI Disclaimer)
     final_response = {
         "processed_image": f"{request.host_url}output/{filename}",
         "detections": detections,
-        "disclaimer": "This result is AI-generated. Please verify with a food safety expert before consumption."
+        "disclaimer": {
+            "title": "⚠️ IMPORTANT: Responsible AI Notice",
+            "main_text": "This result is AI-generated and for informational purposes only. It should NOT be used as the sole basis for any decisions.",
+            "warning_points": [
+                "AI models can make mistakes. Always verify results with a qualified food safety expert.",
+                "Check the confidence score - lower confidence (below 70%) means less reliable results.",
+                "Review the highlighted regions: Does the AI's detection match what you see?",
+                "If you're unsure, discard the banana to avoid food safety risks."
+            ],
+            "expert_consultation": "For disease diagnosis, consult a food safety expert or agricultural specialist before treatment."
+        }
     }
 
     # Print ke terminal untuk bukti JSON
@@ -387,6 +447,9 @@ def detect():
 
     return jsonify(final_response)
 
+@app.route("/responsible-ai", methods=["GET"])
+def responsible_ai():
+    return render_template("responsible-ai.html")
 
 # ===============================
 # HELPER ROUTES

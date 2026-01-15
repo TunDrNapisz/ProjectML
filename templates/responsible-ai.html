@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>🍌 Responsible AI - Banana Quality Detection</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .nav-link.active {
+            font-weight: 900;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .nav-link[data-page="home"].active {
+            background-color: #84cc16;
+            color: white;
+        }
+
+        .nav-link[data-page="ai-notice"].active {
+            background-color: #2563eb;
+            color: white;
+        }
+
+        .card-hover {
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
+        }
+    </style>
+</head>
+
+<body class="bg-slate-50 text-gray-900 min-h-screen">
+    <div class="max-w-6xl mx-auto p-4 md:p-10">
+        <!-- Header -->
+        <header class="text-center mb-12">
+            <div class="flex items-center justify-center gap-4 mb-4">
+                <a href="/"
+                    class="nav-link inline-block bg-lime-100 text-lime-700 px-4 py-1 rounded-full text-sm font-bold hover:bg-lime-200 transition-colors uppercase tracking-widest"
+                    data-page="home">Live AI Analysis</a>
+                <a href="/responsible-ai"
+                    class="nav-link inline-block bg-blue-100 text-blue-700 px-4 py-1 rounded-full text-sm font-bold hover:bg-blue-200 transition-colors uppercase tracking-widest"
+                    data-page="ai-notice">ℹ️ AI Notice</a>
+            </div>
+            <h1 class="text-5xl font-extrabold text-gray-900 tracking-tight mb-3">
+                <span class="text-blue-600">Responsible AI</span> Usage
+            </h1>
+            <p class="text-xl text-gray-600">Understanding Limitations and Best Practices</p>
+        </header>
+
+        <!-- Critical Warning -->
+        <div class="mb-8 p-6 bg-amber-50 border-l-8 border-amber-500 rounded-2xl shadow-lg">
+            <div class="flex items-start gap-4">
+                <span class="text-4xl">⚠️</span>
+                <div class="flex-1">
+                    <h2 class="text-2xl font-extrabold text-amber-900 mb-3">Important Disclaimer</h2>
+                    <p class="text-amber-800 font-bold text-lg mb-2">This AI system is a decision support tool, NOT a
+                        replacement for expert judgment.</p>
+                    <p class="text-amber-800">All predictions are AI-generated and should be verified by food safety
+                        experts or agricultural specialists before taking action. The model may make mistakes,
+                        especially in ambiguous cases or with poor image quality.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Understanding Confidence Scores -->
+        <div class="mb-10">
+            <h2 class="text-3xl font-extrabold text-gray-900 mb-6">📊 Understanding Confidence Scores</h2>
+            <p class="text-gray-700 mb-6 text-lg">The AI provides a confidence percentage with each prediction. Here's
+                how to interpret it:</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- High Confidence -->
+                <div class="card-hover bg-green-50 border-4 border-green-500 rounded-2xl p-6 text-center shadow-lg">
+                    <h3 class="text-xl font-bold text-green-900 mb-2">High Confidence</h3>
+                    <div class="text-5xl font-extrabold text-green-600 my-4">80-100%</div>
+                    <p class="text-green-800 font-semibold">Model is relatively certain, but still verify with visible
+                        symptoms</p>
+                </div>
+
+                <!-- Medium Confidence -->
+                <div class="card-hover bg-yellow-50 border-4 border-yellow-500 rounded-2xl p-6 text-center shadow-lg">
+                    <h3 class="text-xl font-bold text-yellow-900 mb-2">Medium Confidence</h3>
+                    <div class="text-5xl font-extrabold text-yellow-600 my-4">50-79%</div>
+                    <p class="text-yellow-800 font-semibold">Model is uncertain. Seek expert consultation before acting
+                    </p>
+                </div>
+
+                <!-- Low Confidence -->
+                <div class="card-hover bg-red-50 border-4 border-red-500 rounded-2xl p-6 text-center shadow-lg">
+                    <h3 class="text-xl font-bold text-red-900 mb-2">Low Confidence</h3>
+                    <div class="text-5xl font-extrabold text-red-600 my-4">Below 50%</div>
+                    <p class="text-red-800 font-semibold">High uncertainty. Do NOT rely on this prediction. Consult an
+                        expert immediately</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Model Limitations -->
+        <div class="mb-10">
+            <h2 class="text-3xl font-extrabold text-gray-900 mb-6">🚫 Known Limitations</h2>
+            <p class="text-gray-700 mb-6 text-lg">This AI model has limitations that users must understand:</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div class="bg-white p-5 rounded-xl border-l-4 border-red-500 shadow">
+                    <h4 class="font-bold text-red-600 mb-2">Image Quality</h4>
+                    <p class="text-gray-700 text-sm">Poor lighting or blurry images reduce accuracy</p>
+                </div>
+                <div class="bg-white p-5 rounded-xl border-l-4 border-red-500 shadow">
+                    <h4 class="font-bold text-red-600 mb-2">Training Data</h4>
+                    <p class="text-gray-700 text-sm">May not recognize rare disease variants</p>
+                </div>
+                <div class="bg-white p-5 rounded-xl border-l-4 border-red-500 shadow">
+                    <h4 class="font-bold text-red-600 mb-2">Environmental Factors</h4>
+                    <p class="text-gray-700 text-sm">Cannot account for soil, climate, or pest interactions</p>
+                </div>
+                <div class="bg-white p-5 rounded-xl border-l-4 border-red-500 shadow">
+                    <h4 class="font-bold text-red-600 mb-2">Early Stages</h4>
+                    <p class="text-gray-700 text-sm">May struggle with very early or advanced disease stages</p>
+                </div>
+                <div class="bg-white p-5 rounded-xl border-l-4 border-red-500 shadow">
+                    <h4 class="font-bold text-red-600 mb-2">Multiple Conditions</h4>
+                    <p class="text-gray-700 text-sm">Cannot detect multiple diseases on the same banana</p>
+                </div>
+                <div class="bg-white p-5 rounded-xl border-l-4 border-red-500 shadow">
+                    <h4 class="font-bold text-red-600 mb-2">Background Noise</h4>
+                    <p class="text-gray-700 text-sm">Other objects in the image may confuse the model</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Best Practices -->
+        <div class="mb-10 p-8 bg-blue-50 border-l-8 border-blue-500 rounded-2xl shadow-lg">
+            <h2 class="text-3xl font-extrabold text-blue-900 mb-6">✅ Best Practices for Responsible Use</h2>
+            <ol class="space-y-4 text-gray-800">
+                <li class="flex items-start gap-3">
+                    <span class="font-bold text-blue-600 text-xl">1.</span>
+                    <div>
+                        <strong>Verify Visual Symptoms:</strong> Compare the AI prediction with known disease symptoms
+                        visible on the banana
+                    </div>
+                </li>
+                <li class="flex items-start gap-3">
+                    <span class="font-bold text-blue-600 text-xl">2.</span>
+                    <div>
+                        <strong>Check Confidence Score:</strong> Only consider predictions with confidence above 70% as
+                        potentially reliable
+                    </div>
+                </li>
+                <li class="flex items-start gap-3">
+                    <span class="font-bold text-blue-600 text-xl">3.</span>
+                    <div>
+                        <strong>Multiple Images:</strong> Take photos from different angles and lighting conditions
+                    </div>
+                </li>
+                <li class="flex items-start gap-3">
+                    <span class="font-bold text-blue-600 text-xl">4.</span>
+                    <div>
+                        <strong>Consult Experts:</strong> Always validate AI predictions with agricultural experts or
+                        pathologists before treatment
+                    </div>
+                </li>
+                <li class="flex items-start gap-3">
+                    <span class="font-bold text-blue-600 text-xl">5.</span>
+                    <div>
+                        <strong>Document Findings:</strong> Keep records of AI predictions alongside expert diagnoses
+                        to improve decision-making
+                    </div>
+                </li>
+                <li class="flex items-start gap-3">
+                    <span class="font-bold text-blue-600 text-xl">6.</span>
+                    <div>
+                        <strong>Never Use as Sole Decision:</strong> Combine AI insights with traditional diagnostic
+                        methods and expert knowledge
+                    </div>
+                </li>
+                <li class="flex items-start gap-3">
+                    <span class="font-bold text-blue-600 text-xl">7.</span>
+                    <div>
+                        <strong>Report Errors:</strong> If the AI makes obvious mistakes, document and report them to
+                        improve the system
+                    </div>
+                </li>
+            </ol>
+        </div>
+
+        <!-- When NOT to Trust -->
+        <div class="mb-10 p-8 bg-red-50 border-l-8 border-red-600 rounded-2xl shadow-lg">
+            <h2 class="text-3xl font-extrabold text-red-900 mb-6">🛑 When NOT to Trust the AI</h2>
+            <ul class="space-y-3 text-gray-800">
+                <li class="flex items-start gap-3">
+                    <span class="text-red-600 font-bold">✗</span>
+                    <span>Confidence score is below 70%</span>
+                </li>
+                <li class="flex items-start gap-3">
+                    <span class="text-red-600 font-bold">✗</span>
+                    <span>The prediction contradicts obvious visual evidence</span>
+                </li>
+                <li class="flex items-start gap-3">
+                    <span class="text-red-600 font-bold">✗</span>
+                    <span>Image quality is poor (blurry, dark, or unclear)</span>
+                </li>
+                <li class="flex items-start gap-3">
+                    <span class="text-red-600 font-bold">✗</span>
+                    <span>Multiple diseases or conditions are suspected</span>
+                </li>
+                <li class="flex items-start gap-3">
+                    <span class="text-red-600 font-bold">✗</span>
+                    <span>The banana shows unusual or rare symptoms</span>
+                </li>
+                <li class="flex items-start gap-3">
+                    <span class="text-red-600 font-bold">✗</span>
+                    <span>You're making critical decisions that could affect health or business</span>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Transparency Section -->
+        <div class="mb-10">
+            <h2 class="text-3xl font-extrabold text-gray-900 mb-6">🔍 Model Transparency</h2>
+            <div class="bg-white p-8 rounded-2xl shadow-lg border-2 border-gray-200">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <h3 class="font-bold text-lg text-gray-900 mb-3">Training Data</h3>
+                        <ul class="space-y-2 text-gray-700 text-sm">
+                            <li>• Trained on banana images from controlled datasets</li>
+                            <li>• May not represent all real-world conditions</li>
+                            <li>• Limited diversity in banana varieties and environments</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-lg text-gray-900 mb-3">Model Performance</h3>
+                        <ul class="space-y-2 text-gray-700 text-sm">
+                            <li>• Accuracy varies based on image quality</li>
+                            <li>• Performance decreases with ambiguous cases</li>
+                            <li>• Regular updates needed to maintain accuracy</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer Disclaimer -->
+        <div class="mt-12 p-6 bg-gray-100 rounded-2xl text-center border-t-4 border-gray-400">
+            <p class="text-gray-700 font-semibold mb-2">
+                🔬 This AI tool is designed to assist, not replace, professional expertise
+            </p>
+            <p class="text-sm text-gray-600">
+                For food safety concerns or agricultural decisions, always consult with qualified professionals.
+                The developers are not liable for decisions made based solely on AI predictions.
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // Active navigation highlight
+        document.addEventListener('DOMContentLoaded', function () {
+            const currentPath = window.location.pathname;
+            const navLinks = document.querySelectorAll('.nav-link');
+            navLinks.forEach(link => {
+                const href = link.getAttribute('href');
+                if ((currentPath === '/' && href === '/') || (currentPath === '/responsible-ai' && href === '/responsible-ai')) {
+                    link.classList.add('active');
+                } else {
+                    link.classList.remove('active');
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>
