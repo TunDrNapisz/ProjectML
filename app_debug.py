@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory, render_template, render_template, request
+from flask import Flask, request, jsonify, send_from_directory, render_template
 import cv2
 import numpy as np
 import os
@@ -6,6 +6,7 @@ import uuid
 from groq import Groq
 import json  # Tambahan: Untuk format JSON di terminal
 from dotenv import load_dotenv
+from supabase import create_client
 
 # Load environment variables from .env file
 load_dotenv()
@@ -15,7 +16,16 @@ from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing.image import img_to_array
 from tensorflow.keras.applications.efficientnet import preprocess_input
 
+# ===============================
+# API CLIENTS
+# ===============================
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+# Supabase Setup
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+BUCKET_NAME = os.getenv("SUPABASE_BUCKET_NAME", "banana-images")
 
 # ===============================
 # CONFIGURATION
@@ -28,6 +38,12 @@ for folder in [UPLOAD_FOLDER, OUTPUT_FOLDER, CROP_FOLDER]:
     os.makedirs(folder, exist_ok=True)
 
 app = Flask(__name__, template_folder="templates")
+
+# Verify Supabase connection
+if SUPABASE_URL and SUPABASE_KEY:
+    print("[INFO] Supabase client initialized successfully")
+else:
+    print("[WARNING] Supabase credentials missing - database features will not work")
 
 # ===============================
 # LOAD MODELS
@@ -324,6 +340,51 @@ def classify_banana(img_bgr):
 
 
 # ===============================
+# SUPABASE UPLOAD & DATABASE
+# ===============================
+def upload_to_supabase(filepath, filename):
+    """Upload image to Supabase storage and return public URL"""
+    try:
+        if not (SUPABASE_URL and SUPABASE_KEY):
+            print("[WARNING] Supabase not configured, skipping upload")
+            return None
+        
+        with open(filepath, "rb") as f:
+            supabase.storage.from_(BUCKET_NAME).upload(
+                filename,
+                f,
+                {"content-type": "image/jpeg"}
+            )
+        
+        url = supabase.storage.from_(BUCKET_NAME).get_public_url(filename)
+        print(f"[INFO] Image uploaded to Supabase: {filename}")
+        return url
+    except Exception as e:
+        print(f"[WARNING] Supabase upload failed: {e}")
+        return None
+
+
+def save_prediction_to_db(image_url, prediction, confidence):
+    """Save prediction result to Supabase database"""
+    try:
+        if not (SUPABASE_URL and SUPABASE_KEY):
+            print("[WARNING] Supabase not configured, skipping database save")
+            return False
+        
+        supabase.table("banana_predictions").insert({
+            "image_url": image_url,
+            "prediction": prediction,
+            "confidence": round(confidence * 100, 2)
+        }).execute()
+        
+        print("[INFO] Prediction saved to database")
+        return True
+    except Exception as e:
+        print(f"[WARNING] Database save failed: {e}")
+        return False
+
+
+# ===============================
 # MAIN DETECT ROUTE
 # ===============================
 @app.route("/detect", methods=["POST"])
@@ -370,6 +431,11 @@ def detect():
                 annotated_crop_name = f"annotated_{uuid.uuid4()}.jpg"
                 cv2.imwrite(os.path.join(CROP_FOLDER, annotated_crop_name), annotated_crop)
 
+                # Upload to Supabase and save to database
+                image_url = upload_to_supabase(filepath, filename)
+                if image_url:
+                    save_prediction_to_db(image_url, banana_type, confidence)
+
                 detections.append({
                     "id": str(uuid.uuid4())[:8],
                     "type": info.get("type", banana_type),  # UBAH INI: Guna info["type"] jika ada
@@ -402,6 +468,11 @@ def detect():
                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
             annotated_crop_name = f"annotated_{uuid.uuid4()}.jpg"
             cv2.imwrite(os.path.join(CROP_FOLDER, annotated_crop_name), annotated_img)
+
+            # Upload to Supabase and save to database
+            image_url = upload_to_supabase(filepath, filename)
+            if image_url:
+                save_prediction_to_db(image_url, banana_type, confidence)
 
             detections.append({
                 "id": "full-scan",
