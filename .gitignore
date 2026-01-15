@@ -1,10 +1,26 @@
+#Environment
+.env
+.env.local
+
+
 # Python
 __pycache__/
 *.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
 
 # Virtual environment
+venv/
 .venv/
 .venv_yolo/
+env/
+ENV/
+
+# Flask
+instance/
+.webassets-cache
 
 # PyCharm
 .idea/
@@ -14,6 +30,8 @@ __pycache__/
 *.pt
 *.h5
 *.onnx
+*.pkl
+*.pth
 
 # Dataset / outputs
 uploads/
@@ -23,3 +41,7 @@ crops/
 # OS
 .DS_Store
 Thumbs.db
+
+# Temporary files
+*.tmp
+temp/
