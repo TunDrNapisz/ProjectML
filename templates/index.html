@@ -85,7 +85,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
       <div class="lg:col-span-7">
         <h2 class="text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2">
-          <span class="p-2 bg-white rounded-lg shadow-sm">📸</span> Visual Analysis
+          <span class="p-2 bg-white rounded-lg shadow-sm">📸</span> Object Detection
         </h2>
         <div
           class="bg-white rounded-3xl shadow-lg p-2 min-h-[400px] flex items-center justify-center relative overflow-hidden border border-gray-100">
@@ -213,10 +213,14 @@
 
           // --- PENETAPAN WARNA BADGE (DIKEMASKINI) ---
           let badgeStyle = "bg-green-100 text-green-700 border-green-200";
-          if (item.type === "Uncertainty") {
+          let badgeText = "✅ SAFE";
+          
+          if (item.type === "Uncertainty" || item.type.includes("Uncertain")) {
             badgeStyle = "bg-amber-100 text-amber-700 border-amber-200";
-          } else if (item.type === "Disease Banana" || item.type.includes("Rotten")) {
+            badgeText = "⚠️ UNCERTAINTY";
+          } else if (item.type === "Disease Banana" || item.type.includes("Rotten") || item.type.includes("Disease")) {
             badgeStyle = "bg-red-100 text-red-700 border-red-200";
+            badgeText = "🚨 DANGER";
           }
 
           const freshness = item.freshness || 0;
@@ -239,7 +243,7 @@
           <div class="flex-1">
             <h3 class="text-xl font-extrabold text-gray-800 leading-tight">${item.type}</h3>
             <div class="mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wide ${badgeStyle}">
-                ${item.type === "Uncertainty" ? "⚠️ UNCERTAINTY" : "🚨 DANGER"} STATUS
+                ${badgeText} STATUS
             </div>
             <p class="text-sm font-bold text-gray-600 mt-2">${item.eatability}</p>
 
@@ -263,10 +267,17 @@
         </div>
 
         <!-- ANNOTATED IMAGE SECTION (EXPLAINABILITY) -->
-        <div class="mt-4 pt-4 border-t border-gray-100">
-          <p class="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">🔍 What the AI Detected:</p>
-          <img src="${item.annotated_crop_url}" class="w-full rounded-2xl mb-4 ring-2 ring-blue-300" alt="AI annotated detection">
-          <p class="text-xs text-gray-600 italic mb-3"><strong>Interpretation Guide:</strong> The image above shows the confidence percentage and detected type. Does this match what you see?</p>
+        <div class="mt-4 pt-4 border-t border-gray-100">          
+          <!-- Show Grad-CAM heatmap if available -->
+          ${item.heatmap_url ? `
+            <div class="mt-4 pt-4 border-t border-gray-200">
+              <p class="text-[10px] font-bold text-purple-600 uppercase tracking-widest mb-3">🔥 Grad-CAM Heatmap (Where AI Focused):</p>
+              <img src="${item.heatmap_url}" class="w-full rounded-2xl ring-2 ring-purple-300" alt="Grad-CAM heatmap visualization">
+              <p class="text-xs text-gray-600 italic mt-3">
+                <strong>Heatmap Interpretation:</strong> Red/yellow areas show where the AI model focused most when making its prediction. This helps understand which features influenced the classification decision.
+              </p>
+            </div>
+          ` : ''}
         </div>
 
         <div class="mt-4 pt-4 border-t border-gray-100">

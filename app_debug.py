@@ -15,6 +15,8 @@ from ultralytics import YOLO
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing.image import img_to_array
 from tensorflow.keras.applications.efficientnet import preprocess_input
+import tensorflow as tf
+from tensorflow.keras.models import Model
 
 # ===============================
 # API CLIENTS
@@ -83,6 +85,162 @@ def apply_preprocessing(img_bgr):
         return cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
     except:
         return img_bgr
+
+
+# ===============================
+# GRAD-CAM HEATMAP LOGIC
+# ===============================
+def generate_gradcam_heatmap(model, img_array, class_id):
+    """
+    Generate Guided Grad-CAM heatmap for the given image and class
+    Args:
+        model: Keras model
+        img_array: Preprocessed image array (1, 224, 224, 3)
+        class_id: Target class index
+    Returns:
+        heatmap: Grad-CAM heatmap (224, 224)
+    """
+    try:
+        # Find the last convolutional layer
+        last_conv_layer = None
+        last_conv_layer_name = None
+        for layer in model.layers[::-1]:
+            if 'conv' in layer.name.lower():
+                last_conv_layer = layer
+                last_conv_layer_name = layer.name
+                break
+        
+        if last_conv_layer is None:
+            print("[WARNING] No convolutional layer found for Grad-CAM")
+            return None
+        
+        print(f"[DEBUG] Using conv layer: {last_conv_layer_name}")
+        
+        # Create a model that outputs both the predictions and the conv layer outputs
+        grad_model = tf.keras.Model(
+            inputs=model.input,
+            outputs=[model.output, last_conv_layer.output]
+        )
+        
+        # Convert input to tensor
+        img_tensor = tf.cast(img_array, tf.float32)
+        
+        # Compute gradients
+        with tf.GradientTape() as tape:
+            # Get predictions and conv outputs
+            model_outputs = grad_model(img_tensor, training=False)
+            
+            # Handle nested list structure from Keras model
+            if isinstance(model_outputs, list):
+                # model_outputs = [[predictions], conv_outputs]
+                predictions_raw = model_outputs[0]
+                conv_outputs = model_outputs[1]
+                
+                # Extract actual predictions tensor
+                if isinstance(predictions_raw, list):
+                    predictions = predictions_raw[0]
+                else:
+                    predictions = predictions_raw
+            else:
+                predictions, conv_outputs = model_outputs
+            
+            class_channel = predictions[:, class_id]
+        
+        print(f"[DEBUG] Predictions shape: {predictions.shape}, class_id: {class_id}, prediction value: {predictions[0, class_id].numpy():.4f}")
+        
+        # Get gradients of the class with respect to conv outputs
+        grads = tape.gradient(class_channel, conv_outputs)
+        
+        if grads is None:
+            print("[WARNING] Gradients are None")
+            return None
+        
+        print(f"[DEBUG] Gradients shape: {grads.shape}, min: {tf.math.reduce_min(grads).numpy():.4f}, max: {tf.math.reduce_max(grads).numpy():.4f}")
+        
+        # Global average pooling of gradients
+        pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+        print(f"[DEBUG] Pooled gradients shape: {pooled_grads.shape}")
+        
+        # Multiply each channel by its gradient weight
+        conv_outputs_val = conv_outputs[0]
+        heatmap = conv_outputs_val @ pooled_grads[..., tf.newaxis]
+        heatmap = tf.squeeze(heatmap)
+        
+        # Guided Grad-CAM: Apply ReLU to both gradients and activations
+        # This amplifies positive contributions (where the model focuses)
+        guided_grads = tf.cast(grads > 0, tf.float32) * grads
+        guided_pooled_grads = tf.reduce_mean(guided_grads, axis=(0, 1, 2))
+        heatmap_guided = conv_outputs_val @ guided_pooled_grads[..., tf.newaxis]
+        heatmap_guided = tf.squeeze(heatmap_guided)
+        
+        # Normalize the heatmap
+        heatmap_combined = heatmap + heatmap_guided  # Combine both for better results
+        heatmap_combined = tf.maximum(heatmap_combined, 0)
+        heatmap_max = tf.math.reduce_max(heatmap_combined)
+        
+        if heatmap_max > 0:
+            heatmap_combined = heatmap_combined / heatmap_max
+        
+        heatmap_np = heatmap_combined.numpy()
+        print(f"[DEBUG] Final heatmap - shape: {heatmap_np.shape}, range: [{heatmap_np.min():.3f}, {heatmap_np.max():.3f}]")
+        
+        return heatmap_np
+        
+    except Exception as e:
+        print(f"[ERROR] Grad-CAM generation failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def overlay_gradcam_on_image(img_rgb, heatmap, alpha=0.5):
+    """
+    Overlay Grad-CAM heatmap on the original image
+    Args:
+        img_rgb: Original image in RGB (224, 224, 3)
+        heatmap: Grad-CAM heatmap (224, 224)
+        alpha: Transparency of heatmap overlay
+    Returns:
+        overlayed_img: Image with heatmap overlay (BGR format for OpenCV)
+    """
+    try:
+        if heatmap is None:
+            print("[WARNING] Heatmap is None, returning original image")
+            return cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+        
+        print(f"[DEBUG] Overlay: img_rgb shape: {img_rgb.shape}, heatmap shape: {heatmap.shape}")
+        
+        # Ensure heatmap is 2D
+        if len(heatmap.shape) > 2:
+            heatmap = heatmap[:, :, 0]
+        
+        # Resize heatmap to match image size
+        h, w = img_rgb.shape[:2]
+        heatmap_resized = cv2.resize(heatmap, (w, h))
+        
+        print(f"[DEBUG] Heatmap resized to: {heatmap_resized.shape}")
+        
+        # Normalize heatmap to 0-255 range
+        heatmap_normalized = (heatmap_resized * 255).astype(np.uint8)
+        
+        # Apply colormap (JET for better visualization - red hot areas)
+        heatmap_colored = cv2.applyColorMap(heatmap_normalized, cv2.COLORMAP_JET)
+        
+        print(f"[DEBUG] Heatmap colored shape: {heatmap_colored.shape}")
+        
+        # Convert img_rgb to BGR for OpenCV
+        img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+        
+        # Blend the images
+        overlayed = cv2.addWeighted(img_bgr, 1 - alpha, heatmap_colored, alpha, 0)
+        
+        print(f"[DEBUG] Overlay completed successfully")
+        return overlayed
+    except Exception as e:
+        print(f"[ERROR] Heatmap overlay failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
 
 
 # ===============================
@@ -247,18 +405,18 @@ def get_banana_info(label, accuracy, all_scores, crop_img):
             }
         elif d_score >= 50.0:
             return {
-                "type": "Uncertain (Disease)",
+                "type": "Uncertain",
                 "description": display_desc,
-                "eatability": "Strictly Unfit for Consumption",  # Ikut Prompt Logik 6
+                "eatability": "Advised against Consumption",  # Ikut Prompt Logik 6
                 "expiry": display_expiry,
                 "freshness": display_freshness,
                 "reason": [f"Moderate Disease Score ({d_score}%)"]
             }
         else:  # Bawah 50%
             return {
-                "type": "Uncertain (Potential Disease)",
+                "type": "Uncertain",
                 "description": display_desc,
-                "eatability": "Risky (For Cooking Only)",  # Ikut Prompt Logik 5
+                "eatability": "Not recommended for raw consumption (For Cooking Only)",  # Ikut Prompt Logik 5
                 "expiry": display_expiry,
                 "freshness": display_freshness,
                 "reason": [f"Low Disease Score ({d_score}%)"]
@@ -307,7 +465,7 @@ def classify_banana(img_bgr):
     try:
         if banana_classifier is None:
             print("[ERROR] Banana classifier model is not loaded!")
-            return 1, 0.0, {"Disease": 0, "Healthy": 0, "Rotten": 0}
+            return 1, 0.0, {"Disease": 0, "Healthy": 0, "Rotten": 0}, None
         
         print("[DEBUG] Starting banana classification...")
         processed_img = apply_preprocessing(img_bgr)
@@ -331,12 +489,30 @@ def classify_banana(img_bgr):
         
         print(f"[DEBUG] Class ID: {class_id}, Confidence: {confidence}")
         print(f"[DEBUG] All scores: {all_scores}")
-        return class_id, confidence, all_scores
+        
+        # Generate Grad-CAM heatmap
+        print("[DEBUG] Generating Grad-CAM heatmap...")
+        heatmap = generate_gradcam_heatmap(banana_classifier, img_array, class_id)
+        
+        # Overlay heatmap on ORIGINAL crop (preserves aspect ratio)
+        heatmap_img = None
+        if heatmap is not None:
+            print(f"[DEBUG] Heatmap shape: {heatmap.shape}, dtype: {heatmap.dtype}")
+            # Use original img_rgb (processed but not resized to 224x224) for overlay
+            heatmap_img = overlay_gradcam_on_image(img_rgb, heatmap, alpha=0.5)
+            if heatmap_img is not None:
+                print(f"[DEBUG] Heatmap overlay successful, shape: {heatmap_img.shape}")
+            else:
+                print("[WARNING] Heatmap overlay returned None")
+        else:
+            print("[WARNING] Grad-CAM heatmap generation returned None")
+        
+        return class_id, confidence, all_scores, heatmap_img
     except Exception as e:
         print(f"[ERROR] Classification error: {e}")
         import traceback
         traceback.print_exc()
-        return 1, 0.0, {"Disease": 0, "Healthy": 0, "Rotten": 0}
+        return 1, 0.0, {"Disease": 0, "Healthy": 0, "Rotten": 0}, None
 
 
 # ===============================
@@ -414,13 +590,20 @@ def detect():
         for i in sorted_indices[:4]:
             banana_crop = get_natural_crop(img, results, box_index=i)
             if banana_crop is not None and banana_crop.size > 0:
-                class_id, confidence, all_scores = classify_banana(banana_crop)
+                class_id, confidence, all_scores, heatmap_img = classify_banana(banana_crop)
                 if confidence < 0.30: continue
 
                 banana_type = label_map.get(class_id, "Unknown")
                 info = get_banana_info(banana_type, confidence, all_scores, banana_crop)
                 crop_name = f"crop_{uuid.uuid4()}.jpg"
                 cv2.imwrite(os.path.join(CROP_FOLDER, crop_name), banana_crop)
+
+                # Save heatmap if generated
+                heatmap_name = None
+                if heatmap_img is not None:
+                    heatmap_name = f"heatmap_{uuid.uuid4()}.jpg"
+                    cv2.imwrite(os.path.join(CROP_FOLDER, heatmap_name), heatmap_img)
+                    print(f"[INFO] Heatmap saved: {heatmap_name}")
 
                 # Create annotated image with confidence display
                 annotated_crop = banana_crop.copy()
@@ -436,7 +619,7 @@ def detect():
                 if image_url:
                     save_prediction_to_db(image_url, banana_type, confidence)
 
-                detections.append({
+                detection_obj = {
                     "id": str(uuid.uuid4())[:8],
                     "type": info.get("type", banana_type),  # UBAH INI: Guna info["type"] jika ada
                     "confidence": confidence,  # TAMBAH/KEKALKAN: Untuk index.html baca confidence
@@ -450,7 +633,13 @@ def detect():
                     "freshness": info["freshness"],
                     "crop_url": f"{request.host_url}crop/{crop_name}",
                     "annotated_crop_url": f"{request.host_url}crop/{annotated_crop_name}"
-                })
+                }
+                
+                # Add heatmap URL if available
+                if heatmap_name:
+                    detection_obj["heatmap_url"] = f"{request.host_url}crop/{heatmap_name}"
+                
+                detections.append(detection_obj)
 
     if not detections:
         # No bananas detected by YOLO - return error message instead of fallback classification
