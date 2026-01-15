@@ -164,6 +164,32 @@
         const response = await fetch("/detect", { method: "POST", body: formData });
         const data = await response.json();
 
+        // Check if there's an error in the response
+        if (data.error) {
+          resultsDiv.innerHTML = `
+            <div class="bg-red-50 rounded-3xl p-8 border-2 border-red-200 text-center">
+              <div class="text-4xl mb-3">🚫</div>
+              <h3 class="text-xl font-bold text-red-700 mb-3">${data.error}</h3>
+              <p class="text-red-600 text-sm mb-4">${data.message}</p>
+              <div class="bg-red-100 rounded-xl p-4 text-left text-[12px] text-red-700 space-y-2">
+                <p class="font-bold">💡 Tips:</p>
+                ${data.disclaimer.warning_points.map(point => `<p>• ${point}</p>`).join('')}
+              </div>
+            </div>
+          `;
+          document.getElementById("foundCount").innerText = "0 Found";
+          
+          // Still show the processed image if available
+          if (data.processed_image) {
+            document.getElementById("imgPlaceholder").style.display = "none";
+            const processedImg = document.getElementById("processedImg");
+            processedImg.src = data.processed_image;
+            processedImg.classList.remove('opacity-0');
+            processedImg.classList.add('opacity-100');
+          }
+          return;
+        }
+
         document.getElementById("imgPlaceholder").style.display = "none";
         const processedImg = document.getElementById("processedImg");
         processedImg.src = data.processed_image;

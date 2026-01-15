@@ -453,42 +453,24 @@ def detect():
                 })
 
     if not detections:
-        class_id, confidence, all_scores = classify_banana(img)
-        if confidence >= 0.50:
-            banana_type = label_map.get(class_id, "Unknown")
-            info = get_banana_info(banana_type, confidence, all_scores, img)
-            crop_name = f"fallback_{uuid.uuid4()}.jpg"
-            cv2.imwrite(os.path.join(CROP_FOLDER, crop_name), img)
-
-            # Create annotated image with confidence display
-            annotated_img = img.copy()
-            cv2.putText(annotated_img, f"Confidence: {confidence*100:.1f}%", (10, 40),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 2)
-            cv2.putText(annotated_img, f"Type: {banana_type}", (10, 90),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
-            annotated_crop_name = f"annotated_{uuid.uuid4()}.jpg"
-            cv2.imwrite(os.path.join(CROP_FOLDER, annotated_crop_name), annotated_img)
-
-            # Upload to Supabase and save to database
-            image_url = upload_to_supabase(filepath, filename)
-            if image_url:
-                save_prediction_to_db(image_url, banana_type, confidence)
-
-            detections.append({
-                "id": "full-scan",
-                "type": info.get("type", banana_type),  # UBAH INI JUGA
-                "confidence": confidence,
-                "confidence_percentage": round(confidence * 100, 2),
-                "confidence_level": "High" if confidence >= 0.8 else "Medium" if confidence >= 0.6 else "Low",
-                "accuracy_val": round(confidence * 100, 2),
-                "all_scores": all_scores,
-                "description": info["description"] + " (Full Scan)",
-                "eatability": info["eatability"],
-                "expiry": info["expiry"],
-                "freshness": info["freshness"],
-                "crop_url": f"{request.host_url}crop/{crop_name}",
-                "annotated_crop_url": f"{request.host_url}crop/{annotated_crop_name}"
-            })
+        # No bananas detected by YOLO - return error message instead of fallback classification
+        res_plotted = results[0].plot()
+        cv2.imwrite(os.path.join(OUTPUT_FOLDER, filename), res_plotted)
+        
+        return jsonify({
+            "error": "No banana detected",
+            "message": "The uploaded image does not contain any banana. Please upload an image with a clear banana for analysis.",
+            "processed_image": f"{request.host_url}output/{filename}",
+            "detections": [],
+            "disclaimer": {
+                "title": "⚠️ IMPORTANT: Responsible AI Notice",
+                "main_text": "This result is AI-generated and for informational purposes only.",
+                "warning_points": [
+                    "Ensure the image clearly shows a banana for accurate detection.",
+                    "Try uploading an image with better lighting and clearer view of the banana."
+                ]
+            }
+        }), 400
 
     res_plotted = results[0].plot()
     cv2.imwrite(os.path.join(OUTPUT_FOLDER, filename), res_plotted)
